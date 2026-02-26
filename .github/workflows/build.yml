@@ -1,0 +1,90 @@
+name: Build Win7 Compatible
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows-win7:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.8
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.8'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-win7.txt
+
+      - name: Build Windows 7 compatible executable
+        run: |
+          $docxPath = python -c "import docx, os; print(os.path.join(os.path.dirname(docx.__file__), 'templates'))"
+          echo "docx templates path: $docxPath"
+          pyinstaller --onefile --windowed --name=docformat_windows_win7 `
+            --add-data "scripts;scripts" `
+            --add-data "${docxPath};docx/templates" `
+            --hidden-import=docx --hidden-import=lxml `
+            --hidden-import=pythoncom --hidden-import=pywintypes `
+            docformat_gui.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-win7-build
+          path: dist/docformat_windows_win7.exe
+
+  release:
+    needs: [build-windows-win7]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-win7-build
+          path: dist/
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: 公文格式处理工具 (Win7) ${{ steps.get_version.outputs.VERSION }}
+          body: |
+            ## Windows 7 / 8 兼容版下载
+
+            👉 [docformat_windows_win7.exe](https://github.com/${{ github.repository }}/releases/download/${{ steps.get_version.outputs.VERSION }}/docformat_windows_win7.exe)
+
+            ### 系统要求
+            - Windows 7 SP1 或更高版本
+            - 处理 `.doc` / `.wps` 格式需安装 Microsoft Office 或 WPS Office
+            - 推荐使用 `.docx` 格式以获得最佳兼容性
+
+            ### 常见问题
+            - 如果双击后闪退，请安装 [Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+            - 如果提示缺少 DLL，请确保已安装 Windows 7 SP1
+
+            ### 使用说明
+            1. 下载 exe 文件，双击运行
+            2. 选择要处理的 .docx 文件
+            3. 点击「开始处理」
+
+          files: |
+            dist/docformat_windows_win7.exe
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
